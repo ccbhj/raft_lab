@@ -183,3 +183,36 @@ func TestReElection(t *testing.T) {
 	r.Shutdown()
 	shutdownRafts(t, rfs)
 }
+
+func TestManyElection(t *testing.T) {
+	t.Log("test many election")
+	r := initRouter(t)
+
+	names := []string{"AA", "BB", "CC", "DD", "EE", "FF", "GG"}
+	rfs := makeRafts(t, r, names)
+
+	iters := 10
+	for ii := 1; ii < iters; ii++ {
+		i1 := rand.Int() % len(names)
+		i2 := rand.Int() % len(names)
+		i3 := rand.Int() % len(names)
+		r.Disconnect(names[i1])
+		r.Disconnect(names[i2])
+		r.Disconnect(names[i3])
+
+		if l := checkOneLeader(t, r, rfs); l == "" {
+			t.FailNow()
+		}
+
+		r.Connect(names[i1])
+		r.Connect(names[i2])
+		r.Connect(names[i3])
+	}
+
+	if l := checkOneLeader(t, r, rfs); l == "" {
+		t.FailNow()
+	}
+
+	r.Shutdown()
+	shutdownRafts(t, rfs)
+}
