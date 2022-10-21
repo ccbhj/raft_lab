@@ -1,0 +1,5 @@
+log/
+vendor/
+*.orig
+*.swp
+*.swo
