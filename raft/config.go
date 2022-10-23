@@ -9,6 +9,7 @@ var raftConfig *Config = &Config{
 	HeartBeatIntervalMs:    1000,
 	ElectionTimeoutMinMs:   1200,
 	ElectionTimeoutRangeMs: 500,
+	PersistDir:             os.TempDir(),
 }
 
 // NOTE: USE ONLY MILLISECOND
@@ -17,13 +18,15 @@ type Config struct {
 	HeartBeatIntervalMs    int64
 	ElectionTimeoutMinMs   int64
 	ElectionTimeoutRangeMs int64
+	PersistDir             string
 }
 
 func TestConfig() *Config {
 	return &Config{
 		HeartBeatIntervalMs:    100,
 		ElectionTimeoutMinMs:   200,
-		ElectionTimeoutRangeMs: 400,
+		ElectionTimeoutRangeMs: 200,
+		PersistDir:             os.TempDir(),
 	}
 }
 

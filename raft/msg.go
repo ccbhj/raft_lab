@@ -17,10 +17,10 @@ type AppendEntriesResponse struct {
 	Term      int64
 	Success   bool
 
-	LastLog int64
+	LastLogIdx int64
 	// the index of a peer's last log entry
-	ConfilctTerm int64
-	ConfilctIdx  int64
+	// ConfilctTerm int64
+	// ConfilctIdx  int64
 }
 
 type AppendEntriesRequest struct {
@@ -88,4 +88,14 @@ type electionMsg struct {
 
 type sendHeartbeatMsg struct {
 	ReqId string
+}
+
+type commitMsg struct {
+	ReqId   string
+	Commnad interface{}
+	DoneCh  chan struct {
+		Err   error
+		Index int64
+		Term  int64
+	}
 }

@@ -1,11 +1,14 @@
 package raft
 
 import (
+	"errors"
 	"time"
 
 	"github.com/ccbhj/raft_lab/log"
 	"github.com/ccbhj/raft_lab/rpc"
 )
+
+var ErrNotLeader = errors.New("not a leader")
 
 func (rf *Raft) getStatusProc(msg getStatusMsg) {
 	status := RaftStatus{
@@ -34,11 +37,12 @@ func (rf *Raft) electionProc(msg electionMsg) {
 	rf.voteFor = rf.me
 	rf.currentTerm++
 
+	lastLogIdx, lastLogTerm := rf.getLastLogEntry()
 	args := &RequestVoteRequest{
 		Term:        rf.currentTerm,
 		CandidateId: rf.me,
-		LastLogIdx:  0,
-		LastLogTerm: 0,
+		LastLogIdx:  lastLogIdx,
+		LastLogTerm: lastLogTerm,
 	}
 	rf.persist()
 
@@ -46,18 +50,20 @@ func (rf *Raft) electionProc(msg electionMsg) {
 		rf.resetTimer(ctx, 0).Milliseconds(), args)
 
 	rf.forEachPeers(ctx, func(peer string, routeTab map[string]rpc.RouteInfo) {
-		reply := new(RequestVoteResponse)
-		if err := rf.channel.Call(ctx, routeTab, peer, string(RPCRequestVote), args, reply); err != nil {
-			logger.Error("fail to send request vote request to %s: %s", peer, err)
-			return
-		}
-		rf.msgCh <- rpcReplyMsg{
-			ReqId:   log.GetRequestIdFromCtx(ctx),
-			RPCType: RPCRequestVote,
-			Peer:    peer,
-			Args:    *args,
-			Reply:   *reply,
-		}
+		go func() {
+			reply := new(RequestVoteResponse)
+			if err := rf.channel.Call(ctx, routeTab, peer, string(RPCRequestVote), args, reply); err != nil {
+				logger.Error("fail to send request vote request to %s: %s", peer, err)
+				return
+			}
+			rf.msgCh <- rpcReplyMsg{
+				ReqId:   log.GetRequestIdFromCtx(ctx),
+				RPCType: RPCRequestVote,
+				Peer:    peer,
+				Args:    *args,
+				Reply:   *reply,
+			}
+		}()
 	})
 }
 
@@ -114,23 +120,25 @@ func (rf *Raft) voteReplyProc(msg rpcReplyMsg) {
 
 func (rf *Raft) sendingHeartbeatProc(msg sendHeartbeatMsg) {
 	ctx := rf.newContext(msg.ReqId)
-	rf.forEachPeers(ctx, func(peer string, routeTab map[string]rpc.RouteInfo) {
-		var (
-			reply AppendEntriesResponse
-			args  AppendEntriesRequest
-		)
-		args.RequestId = msg.ReqId
-		rf.prepareAppendEntriesArgs(peer, &args)
-		getLogger(ctx).Debug("send %d entries to peer %s", len(args.Entries), peer)
-		go func() {
-			err := rf.channel.Call(ctx, routeTab, peer, string(RPCAppendEntries), &args, &reply)
-			if err == nil {
-				rf.msgCh <- rpcReplyMsg{ReqId: msg.ReqId, RPCType: RPCAppendEntries, Peer: peer, Args: args, Reply: reply}
-				return
-			}
-			getLogger(ctx).Error("fail to send %d entries to peer %s: %v", len(args.Entries), peer, err)
-		}()
-	})
+	rf.updateCommitIdx(ctx)
+	rf.forEachPeers(ctx,
+		func(peer string, routeTab map[string]rpc.RouteInfo) {
+			var (
+				reply AppendEntriesResponse
+				args  AppendEntriesRequest
+			)
+			args.RequestId = msg.ReqId
+			rf.prepareAppendEntriesArgs(peer, &args)
+			getLogger(ctx).Debug("send %d entries to peer %s", len(args.Entries), peer)
+			go func() {
+				err := rf.channel.Call(ctx, routeTab, peer, string(RPCAppendEntries), &args, &reply)
+				if err == nil {
+					rf.msgCh <- rpcReplyMsg{ReqId: msg.ReqId, RPCType: RPCAppendEntries, Peer: peer, Args: args, Reply: reply}
+					return
+				}
+				getLogger(ctx).Error("fail to send %d entries to peer %s: %v", len(args.Entries), peer, err)
+			}()
+		})
 	rf.resetTimer(ctx, time.Duration(GetRaftConfig().HeartBeatIntervalMs)*time.Millisecond)
 }
 
@@ -163,6 +171,52 @@ func (rf *Raft) heartbeatReplyProc(msg rpcReplyMsg) {
 			rf.matchIdxes[msg.Peer] = last.Index
 		}
 	} else {
-		// rf.nextIdxes[msg.Peer] = MaxInt64(MinInt64(rf.nextIdxes[msg.Peer]-1, reply.LastLog+1), 1)
+		// In the raft extend papar, the leader shoud decrement the nextIndex and retry
+		// but since we can know the last log index of the peer's log,
+		// we can conclude a more precise result for the next log index the peer want.
+		// But LastLogIdx may not be in the current term, we still need to take nextIdxes into consideration,
+		// to keep it simple, try the smaller one.
+		rf.nextIdxes[msg.Peer] = MaxInt64(MinInt64(rf.nextIdxes[msg.Peer]-1, reply.LastLogIdx+1), 0)
+	}
+	logger.Debug("for peer %s, nextIdx=%d, matchIdx=%d",
+		msg.Peer, rf.nextIdxes[msg.Peer], rf.matchIdxes[msg.Peer])
+}
+
+func (rf *Raft) commitMsgProc(msg commitMsg) {
+	var ret struct {
+		Err   error
+		Index int64
+		Term  int64
+	}
+	ctx := rf.newContext(msg.ReqId)
+
+	if msg.Commnad == nil {
+		ret.Err = errors.New("command cannot be nil")
+		msg.DoneCh <- ret
+		return
+	}
+	if rf.state != LEADER {
+		ret.Err = ErrNotLeader
+		msg.DoneCh <- ret
+		return
+	}
+
+	index := int64(len(rf.logs))
+	getLogger(ctx).Info("!!! commiting command %v at index %d", msg.Commnad, index)
+	log := LogEntry{
+		Command: msg.Commnad,
+		Index:   index,
+		Term:    rf.currentTerm,
+	}
+	ret.Index = log.Index
+	ret.Term = log.Term
+	msg.DoneCh <- ret
+
+	rf.logs = append(rf.logs, log)
+	rf.nextIdxes[rf.me] = int64(len(rf.logs))
+	rf.matchIdxes[rf.me] = int64(len(rf.logs)) - 1
+	rf.persist()
+	rf.msgCh <- sendHeartbeatMsg{
+		ReqId: msg.ReqId,
 	}
 }
