@@ -89,9 +89,12 @@ func makeRafts(t *testing.T, router *rpc.Router, names []string) map[string]*Raf
 	rafts := make(map[string]*Raft, len(names))
 	for i, name := range names {
 		os.Setenv("CHAN_PORT", fmt.Sprintf("%d", i+8080))
-		rf, err := Make(name, routeAddr)
-		if !assert.NoError(t, err) {
-			t.Fatal()
+		rf, err := MakeRaft(name, routeAddr)
+		if err != nil {
+			t.Fatalf("fail to start %s at port %d: %s", name, i+8080, err)
+		}
+		if rf.channel == nil {
+			t.Fatalf("channel is nil for %s", name)
 		}
 		rafts[name] = rf
 		t.Logf("done making raft %s", name)
