@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ccbhj/raft_lab/log"
+	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 )
@@ -44,6 +45,20 @@ type Channel struct {
 }
 
 func NewChannel(ctx context.Context, name, routerAddr string, method map[string]MethodInfo) (*Channel, error) {
+	var out io.Writer
+	logOut := os.Getenv("CHANNEL_LOG_PATH")
+	if logOut == "" || strings.ToUpper(logOut) == "STDOUT" {
+		out = os.Stdout
+	} else {
+		file, err := os.OpenFile(logOut, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+		out = file
+	}
+	fmt.Printf("channel log path = %s\n", logOut)
+	log.InitLogger(out, ChannelLogKey, []string{log.RequestIdCtxKey})
+
 	if routerAddr == "" {
 		return nil, errors.New("router addr cannot be empty")
 	}
@@ -70,7 +85,7 @@ func NewChannel(ctx context.Context, name, routerAddr string, method map[string]
 		return nil, errors.WithMessage(err, "fail to get port")
 	}
 
-	if err := ch.registerName(ctx, name, routerAddr, port); err != nil {
+	if err := ch.registerName(ctx, name, routerAddr, port, false); err != nil {
 		close(ch.closeCh)
 		return nil, err
 	}
@@ -80,7 +95,11 @@ func NewChannel(ctx context.Context, name, routerAddr string, method map[string]
 
 func (c *Channel) Shutdown() {
 	if atomic.CompareAndSwapInt64(&c.closed, 0, 1) {
+		fmt.Printf("shutdown channel")
 		close(c.closeCh)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c.registerName(ctx, c.Name(), c.routerAddr, 0, true)
 	}
 }
 
@@ -99,6 +118,9 @@ func (c *Channel) Start() error {
 	}()
 	select {
 	case err := <-errCh:
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		c.registerName(ctx, c.Name(), c.routerAddr, 0, true)
 		return err
 	case <-time.After(1 * time.Second):
 		break
@@ -134,15 +156,16 @@ func (c *Channel) GetRouteTab() (map[string]RouteInfo, error) {
 	return resp.Tab, nil
 }
 
-func (c *Channel) registerName(ctx context.Context, name, routerAddr string, port int) error {
+func (c *Channel) registerName(ctx context.Context, name, routerAddr string, port int, down bool) error {
 	ip := getLocalIP()
 	if ip == "" {
 		return errors.New("cannot find the local ip addr")
 	}
 
 	req := &RegisterRequest{
-		Name: name,
-		Addr: fmt.Sprintf("%s:%d", ip, port),
+		Name:   name,
+		Addr:   fmt.Sprintf("%s:%d", ip, port),
+		Status: !down,
 	}
 	resp := new(RegisterResponse)
 	url := fmt.Sprintf("http://%s%s", routerAddr, MethodRegister)
@@ -167,7 +190,7 @@ func (c *Channel) startHttpServer(port int) error {
 	if err != nil {
 		return errors.WithMessage(err, "fail to create log file")
 	}
-	GetRouterLog(context.Background()).SetOutput(logFile)
+	GetChannelLog(context.Background()).SetOutput(logFile)
 
 	engine.Use(gin.Recovery())
 	engine.Use(gin.LoggerWithWriter(logFile))

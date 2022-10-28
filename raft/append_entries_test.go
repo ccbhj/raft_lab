@@ -139,7 +139,7 @@ func (c *testClient) one(cmd interface{}, expectedServers int, retry bool) int64
 				rf = c.rfs[name]
 			}
 			if rf != nil {
-				index1, _, ok := rf.CommitCommond(cmd)
+				index1, _, ok := rf.commitCommond(cmd)
 				if ok {
 					index = index1
 					break
@@ -221,7 +221,7 @@ func TestFailNoAgree(t *testing.T) {
 	r.Disconnect(names[(leaderIdx+2)%len(names)])
 	r.Disconnect(names[(leaderIdx+3)%len(names)])
 
-	index, _, ok := rfs[leader].CommitCommond(20)
+	index, _, ok := rfs[leader].commitCommond(20)
 	if ok != true {
 		t.Fatalf("leader reject CommitCommond")
 	}
@@ -240,7 +240,7 @@ func TestFailNoAgree(t *testing.T) {
 	if leader2 == "" {
 		t.Fatal("expect leader2")
 	}
-	index2, _, ok2 := rfs[leader2].CommitCommond(30)
+	index2, _, ok2 := rfs[leader2].commitCommond(30)
 	if ok2 == false {
 		t.Fatalf("leader2 reject CommitCommand")
 	}
@@ -275,9 +275,9 @@ func TestRejoin(t *testing.T) {
 	r.Disconnect(leader1)
 
 	// make old leader try to agree on some entries
-	rfs[leader1].CommitCommond(102)
-	rfs[leader1].CommitCommond(103)
-	rfs[leader1].CommitCommond(104)
+	rfs[leader1].commitCommond(102)
+	rfs[leader1].commitCommond(103)
+	rfs[leader1].commitCommond(104)
 
 	// new leader commits, also for index=1
 	cli.one(103, 2, true)

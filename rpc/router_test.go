@@ -39,7 +39,7 @@ func TestRouter_handleLookup(t *testing.T) {
 	go router.Start()
 	time.Sleep(1 * time.Second)
 
-	lookup := func() map[string]string {
+	lookup := func() map[string]RouteInfo {
 		resp, err := http.Post("http://0.0.0.0:8080/lookup", "application/json", nil)
 		assert.NoError(t, err)
 		buf, err := io.ReadAll(resp.Body)

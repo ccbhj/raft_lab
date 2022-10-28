@@ -1,4 +1,4 @@
-package log
+package logging
 
 import (
 	"context"
@@ -30,6 +30,7 @@ type Logger struct {
 	level   Level
 	ctxKeys []string
 	ctx     context.Context
+	out     io.Writer
 }
 
 func GetLogger(ctx context.Context, key string) *Logger {
@@ -54,7 +55,7 @@ func InitLogger(out io.Writer, key string, ctxKeys []string) *Logger {
 	if found {
 		panic(fmt.Sprintf("logger for %s already init", key))
 	}
-	l := &Logger{Logger: logger, level: GetLogLevel(key), ctxKeys: ctxKeys}
+	l := &Logger{Logger: logger, level: GetLogLevel(key), ctxKeys: ctxKeys, out: out}
 	loggers.Store(key, l)
 	return l
 }
@@ -69,6 +70,10 @@ func (l *Logger) Info(f string, args ...interface{}) {
 
 func (l *Logger) Error(f string, args ...interface{}) {
 	l.print(LevelError, f, args...)
+}
+
+func (l *Logger) GetOutput() io.Writer {
+	return l.out
 }
 
 func (l *Logger) print(level Level, f string, args ...interface{}) {

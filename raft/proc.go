@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ccbhj/raft_lab/log"
+	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/ccbhj/raft_lab/rpc"
 )
 
@@ -12,13 +12,29 @@ var ErrNotLeader = errors.New("not a leader")
 
 func (rf *Raft) getStatusProc(msg getStatusMsg) {
 	status := RaftStatus{
-		Name:    rf.channel.Name(),
-		State:   rf.state,
-		Term:    rf.currentTerm,
-		VoteFor: rf.voteFor,
+		Name:      rf.channel.Name(),
+		State:     rf.state,
+		Term:      rf.currentTerm,
+		VoteFor:   rf.voteFor,
+		LastReset: rf.lastReset,
+		Timeout:   rf.timeout,
 	}
 
 	msg.ch <- status
+}
+
+func (rf *Raft) getLogProc(msg getLogMsg) {
+	logs := make([]LogEntry, 0, len(rf.logs))
+	for i := range rf.logs {
+		log := LogEntry{
+			Command: rf.logs[i].Command,
+			Index:   rf.logs[i].Index,
+			Term:    rf.logs[i].Term,
+		}
+		logs = append(logs, log)
+	}
+	msg.DoneCh <- logs
+	return
 }
 
 func (rf *Raft) tickerProc(msg tickerMsg) {
@@ -47,7 +63,7 @@ func (rf *Raft) electionProc(msg electionMsg) {
 	rf.persist()
 
 	logger.Info("start election, timeout=%dms, args=%+v",
-		rf.resetTimer(ctx, 0).Milliseconds(), args)
+		rf.ResetTimer(ctx, 0).Milliseconds(), args)
 
 	rf.forEachPeers(ctx, func(peer string, routeTab map[string]rpc.RouteInfo) {
 		go func() {
@@ -113,7 +129,7 @@ func (rf *Raft) voteReplyProc(msg rpcReplyMsg) {
 			rf.nextIdxes[peer] = rf.nextIdxes[rf.me]
 			rf.matchIdxes[peer] = -1
 		}
-		rf.resetTimer(ctx, time.Duration(GetRaftConfig().HeartBeatIntervalMs)*time.Millisecond)
+		rf.ResetTimer(ctx, time.Duration(GetRaftConfig().HeartBeatIntervalMs)*time.Millisecond)
 		rf.msgCh <- sendHeartbeatMsg{msg.ReqId}
 	}
 }
@@ -139,7 +155,7 @@ func (rf *Raft) sendingHeartbeatProc(msg sendHeartbeatMsg) {
 				getLogger(ctx).Error("fail to send %d entries to peer %s: %v", len(args.Entries), peer, err)
 			}()
 		})
-	rf.resetTimer(ctx, time.Duration(GetRaftConfig().HeartBeatIntervalMs)*time.Millisecond)
+	rf.ResetTimer(ctx, time.Duration(GetRaftConfig().HeartBeatIntervalMs)*time.Millisecond)
 }
 
 func (rf *Raft) heartbeatReplyProc(msg rpcReplyMsg) {

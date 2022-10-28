@@ -2,20 +2,14 @@ package rpc
 
 import (
 	"context"
-	"os"
 
-	"github.com/ccbhj/raft_lab/log"
+	log "github.com/ccbhj/raft_lab/logging"
 )
 
 const (
 	RouterLogKey  = "ROUTER"
 	ChannelLogKey = "CHANNEL"
 )
-
-func init() {
-	log.InitLogger(os.Stdout, RouterLogKey, []string{log.RequestIdCtxKey})
-	log.InitLogger(os.Stdout, ChannelLogKey, []string{log.RequestIdCtxKey})
-}
 
 func GetRouterLog(ctx context.Context) *log.Logger {
 	return log.GetLogger(ctx, RouterLogKey)

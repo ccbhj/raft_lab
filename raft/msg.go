@@ -1,5 +1,7 @@
 package raft
 
+import "time"
+
 type RequestVoteRequest struct {
 	Term        int64  `json:"term"`
 	CandidateId string `json:"candidate_id"`
@@ -98,4 +100,13 @@ type commitMsg struct {
 		Index int64
 		Term  int64
 	}
+}
+
+type getLogMsg struct {
+	DoneCh chan []LogEntry
+}
+
+type TimeoutEvent struct {
+	LastTimeout time.Time
+	Timeout     time.Duration
 }

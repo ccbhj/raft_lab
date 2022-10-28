@@ -5,15 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/ccbhj/raft_lab/log"
+	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 )
@@ -33,8 +35,8 @@ const (
 type Router struct {
 	routeTab map[string]RouteInfo
 
-	nNode int64
-	lock  *sync.RWMutex
+	blocked bool
+	lock    *sync.RWMutex
 
 	closed  int64
 	closeCh chan struct{}
@@ -47,6 +49,18 @@ type RouteInfo struct {
 }
 
 func NewRouter() *Router {
+	var out io.Writer
+	logOut := os.Getenv("ROUTER_LOG_PATH")
+	if logOut == "" || strings.ToUpper(logOut) == "STDOUT" {
+		out = os.Stdout
+	} else {
+		file, err := os.OpenFile(logOut, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+		out = file
+	}
+	log.InitLogger(out, RouterLogKey, []string{log.RequestIdCtxKey})
 	return &Router{
 		routeTab: make(map[string]RouteInfo),
 		lock:     &sync.RWMutex{},
@@ -111,12 +125,23 @@ func (r *Router) handleLookup(gctx *gin.Context) {
 func (r *Router) handleRegister(gctx *gin.Context) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
+
 	var req RegisterRequest
 	if err := gctx.ShouldBind(&req); err != nil {
 		gctx.JSON(200, RegisterResponse{ErrMsg: Err(fmt.Sprintf("invalid request body: %s", err))})
 		return
 	}
 
+	if !req.Status {
+		delete(r.routeTab, req.Name)
+		gctx.JSON(200, RegisterResponse{ErrMsg: OK})
+		return
+	}
+
+	if r.blocked {
+		gctx.JSON(200, RegisterResponse{ErrMsg: Err("cannot register any peer now")})
+		return
+	}
 	GetRouterLog(gctx).Info("register %s with addr %s", req.Name, req.Addr)
 	if _, in := r.routeTab[req.Name]; in {
 		gctx.JSON(200, RegisterResponse{ErrMsg: Err("already registered")})
@@ -224,14 +249,9 @@ func (r *Router) startHttpServer(port int) error {
 	if err := os.Mkdir("log", os.ModePerm); err != nil && !os.IsExist(err) {
 		return errors.WithMessage(err, "fail to create log dir")
 	}
-	logFile, err := os.OpenFile("log/route_log", os.O_WRONLY|os.O_CREATE, os.ModePerm)
-	if err != nil {
-		return errors.WithMessage(err, "fail to create log file")
-	}
-	GetRouterLog(context.Background()).SetOutput(logFile)
 
 	engine.Use(gin.Recovery())
-	engine.Use(gin.LoggerWithWriter(logFile))
+	engine.Use(gin.LoggerWithWriter(GetRouterLog(context.Background()).GetOutput()))
 	engine.Use(logResponseBody)
 	engine.POST(MethodRegister, r.handleRegister)
 	engine.POST(MethodCall, r.handleCall)
@@ -283,6 +303,7 @@ func (r *Router) Start() error {
 			GetRouterLog(context.Background()).Error("invalid port %s, fallback to default port %d", portStr, defaultRouterPort)
 		}
 	}
+	fmt.Printf("start router at :%d\n", port)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -339,4 +360,27 @@ func (r *Router) GetRouterTable() map[string]RouteInfo {
 	}
 
 	return tab
+}
+
+func (r *Router) SetBlock(blocked bool) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.blocked = blocked
+}
+
+func (r *Router) IsBlocked() bool {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.blocked
+}
+
+func (r *Router) Clean(peer string) bool {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	addr, in := r.routeTab[peer]
+	delete(r.routeTab, peer)
+	if in {
+		fmt.Printf("clean %s : %s\n", peer, addr.Addr)
+	}
+	return in
 }

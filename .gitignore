@@ -3,3 +3,4 @@ vendor/
 *.orig
 *.swp
 *.swo
+bin/

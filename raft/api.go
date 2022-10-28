@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/ccbhj/raft_lab/log"
+	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/ccbhj/raft_lab/rpc"
 )
 
@@ -73,7 +73,7 @@ func (rf *Raft) requestVote(msg rpcArgsMsg) {
 		reply.VoteGrant = true
 		rf.voteFor = args.CandidateId
 		// set the timer randomly
-		rf.resetTimer(ctx, 0)
+		rf.ResetTimer(ctx, 0)
 	}
 	rf.persist()
 }
@@ -133,7 +133,7 @@ func (rf *Raft) appendEntries(msg rpcArgsMsg) {
 	}
 
 	rf.persist()
-	rf.resetTimer(ctx, 0)
+	rf.ResetTimer(ctx, 0)
 }
 
 func (rf *Raft) Applied() <-chan ApplyMsg {
@@ -144,7 +144,28 @@ func (rf *Raft) Name() string {
 	return rf.channel.Name()
 }
 
-func (rf *Raft) CommitCommond(cmd interface{}) (idx, term int64, isLeader bool) {
+func (rf *Raft) CommitCommond(ctx context.Context, cmd interface{}) (idx, term int64, err error) {
+	reqId := rf.channel.GenRequestId()
+
+	doneCh := make(chan struct {
+		Err   error
+		Index int64
+		Term  int64
+	}, 1)
+	rf.msgCh <- commitMsg{
+		ReqId:   reqId,
+		Commnad: cmd,
+		DoneCh:  doneCh,
+	}
+
+	select {
+	case msg := <-doneCh:
+		return msg.Index, msg.Term, msg.Err
+	case <-ctx.Done():
+		return 0, 0, ctx.Err()
+	}
+}
+func (rf *Raft) commitCommond(cmd interface{}) (idx, term int64, isLeader bool) {
 	reqId := rf.channel.GenRequestId()
 
 	doneCh := make(chan struct {

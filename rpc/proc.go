@@ -32,8 +32,9 @@ type CallResponse struct {
 // For router
 type (
 	RegisterRequest struct {
-		Name string `json:"name"`
-		Addr string `json:"addr"`
+		Name   string `json:"name"`
+		Addr   string `json:"addr"`
+		Status bool   `json:"status"`
 	}
 
 	RegisterResponse struct {

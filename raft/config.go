@@ -5,10 +5,12 @@ import (
 	"strings"
 )
 
+// send heartbeat every 2s
+// election time out between [3, 6]s
 var raftConfig *Config = &Config{
-	HeartBeatIntervalMs:    1000,
-	ElectionTimeoutMinMs:   1200,
-	ElectionTimeoutRangeMs: 500,
+	HeartBeatIntervalMs:    2000,
+	ElectionTimeoutMinMs:   3000,
+	ElectionTimeoutRangeMs: 3000,
 	PersistDir:             os.TempDir(),
 }
 

@@ -4,20 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/ccbhj/raft_lab/log"
+	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/ccbhj/raft_lab/rpc"
 	"github.com/pkg/errors"
 )
 
 func init() {
 	rand.Seed(time.Now().UnixMicro())
-	log.InitLogger(os.Stdout, "RAFT", []string{raftIdKey, stateKey, termKey})
 }
 
 type LogEntry struct {
@@ -39,10 +39,14 @@ type RaftStatus struct {
 	State   State
 	Term    int64
 	VoteFor string
+
+	LastReset time.Time
+	Timeout   time.Duration
 }
 
 type Raft struct {
 	closed int64
+	start  int64
 	// Persister *Persister // Object to hold this peer's persisted state
 	me string // this peer's index into peers[]
 
@@ -57,7 +61,10 @@ type Raft struct {
 
 	voteCount int
 
-	timer *time.Timer
+	// timer
+	timer     *time.Timer
+	lastReset time.Time
+	timeout   time.Duration
 
 	// index of the next log entry to sent to for each peer
 	nextIdxes map[string]int64
@@ -110,8 +117,8 @@ func (rf *Raft) getLogEntry(i int64) *LogEntry {
 	return nil
 }
 
-// resetTimer reset rf.timer, if timeout is zero, random timeout will be used
-func (rf *Raft) resetTimer(ctx context.Context, timeout time.Duration) time.Duration {
+// ResetTimer reset rf.timer, if timeout is zero, random timeout will be used
+func (rf *Raft) ResetTimer(ctx context.Context, timeout time.Duration) time.Duration {
 	if !rf.timer.Stop() {
 		select {
 		case <-rf.timer.C:
@@ -120,8 +127,13 @@ func (rf *Raft) resetTimer(ctx context.Context, timeout time.Duration) time.Dura
 	}
 	if timeout == 0 {
 		timeout = time.Duration(rand.Int63n(GetRaftConfig().ElectionTimeoutRangeMs)+GetRaftConfig().ElectionTimeoutMinMs) * time.Millisecond
+	} else if timeout < 0 {
+		// timeout now
+		timeout = 0
 	}
 	getLogger(ctx).Debug("reset timer for %d ms", timeout.Milliseconds())
+	rf.lastReset = time.Now()
+	rf.timeout = timeout
 	rf.timer.Reset(timeout)
 	return timeout
 }
@@ -323,6 +335,8 @@ func (rf *Raft) mainLoop() {
 				rf.sendingHeartbeatProc(v)
 			case getStatusMsg:
 				rf.getStatusProc(v)
+			case getLogMsg:
+				rf.getLogProc(v)
 			case commitMsg:
 				rf.commitMsgProc(v)
 			case rpcArgsMsg:
@@ -376,6 +390,9 @@ func (rf *Raft) persist() {
 }
 
 func (rf *Raft) GetStatus(ctx context.Context) (RaftStatus, error) {
+	if !rf.Started() {
+		return RaftStatus{}, errors.New("raft not start yet")
+	}
 	ch := make(chan RaftStatus, 1)
 	rf.msgCh <- getStatusMsg{ch}
 
@@ -387,6 +404,21 @@ func (rf *Raft) GetStatus(ctx context.Context) (RaftStatus, error) {
 	}
 }
 
+func (rf *Raft) GetLogEntries(ctx context.Context) ([]LogEntry, error) {
+	if !rf.Started() {
+		return nil, errors.New("raft not start yet")
+	}
+	ch := make(chan []LogEntry, 1)
+	rf.msgCh <- getLogMsg{ch}
+
+	select {
+	case s := <-ch:
+		return s, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func (rf *Raft) Shutdown() {
 	if atomic.CompareAndSwapInt64(&rf.closed, 0, 1) {
 		close(rf.closeCh)
@@ -394,10 +426,27 @@ func (rf *Raft) Shutdown() {
 	}
 }
 
-func (rf *Raft) Start() {
-	rf.resetTimer(rf.newContext(""), 0)
-	go rf.sendApplyMsgDaemon()
-	go rf.mainLoop()
+func (rf *Raft) Start() error {
+	if atomic.CompareAndSwapInt64(&rf.start, 0, 1) {
+		tab, err := rf.channel.GetRouteTab()
+		if err != nil {
+			return err
+		}
+		if len(tab) < 3 {
+			atomic.CompareAndSwapInt64(&rf.start, 1, 0)
+			return errors.Errorf("not enough peers, required at least 3, but got %d", len(tab))
+		}
+		rf.ResetTimer(rf.newContext(""), 0)
+		go rf.sendApplyMsgDaemon()
+		go rf.mainLoop()
+		fmt.Println("OK")
+		return nil
+	}
+	return errors.New("alread started")
+}
+
+func (rf *Raft) Started() bool {
+	return atomic.LoadInt64(&rf.start) != 0
 }
 
 func (rf *Raft) newContext(reqId string) (ctx context.Context) {
@@ -434,10 +483,25 @@ func getLogger(ctx context.Context) *log.Logger {
 }
 
 func MakeRaft(name string, routeAddr string) (*Raft, error) {
+	var out io.Writer
+	logOut := os.Getenv("RAFT_LOG_PATH")
+	fmt.Printf("raft log path = %s\n", logOut)
+	if logOut == "" || strings.ToUpper(logOut) == "STDOUT" {
+		out = os.Stdout
+	} else {
+		file, err := os.OpenFile(logOut, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+		out = file
+	}
+	log.InitLogger(out, "RAFT", []string{log.RequestIdCtxKey, raftIdKey, termKey, stateKey})
+
 	rf := &Raft{
 		me:                name,
 		state:             FOLLOWER,
 		currentTerm:       0,
+		start:             0,
 		voteFor:           NOT_VOTE,
 		logs:              make([]LogEntry, 0, 1<<10),
 		applyCh:           make(chan ApplyMsg),
