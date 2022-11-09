@@ -70,6 +70,10 @@ var raftCommands = map[string]Command{
 			return ctx.rf.Start()
 		},
 	},
+	"counter": {
+		Usage:   "counter - show the internal counter",
+		Handler: showCounter,
+	},
 	"timeout": {
 		Usage:   "timeout [n sec/now] - show the timer status or timeout in n seconds or now",
 		Handler: timeout,
@@ -220,6 +224,11 @@ func addLog(ectx *ExecContext, args []string) error {
 	return nil
 }
 
+func showCounter(ectx *ExecContext, _ []string) error {
+	fmt.Printf("counter: %d\n", ectx.counter)
+	return nil
+}
+
 func showLogs(ectx *ExecContext, args []string) error {
 	if len(args) < 1 {
 		return errors.New("need an start index at least")
@@ -260,10 +269,10 @@ func showLogs(ectx *ExecContext, args []string) error {
 		end = start + 1
 	}
 
-	fmt.Printf("%-5s\t%-4s\t%-s\n", "index", "term", "command")
+	fmt.Printf("%-5s\t%-5s\t%-8s\t%-s\n", "index", "term", "commited", "command")
 	for i := start; i < end; i++ {
 		l := logs[i]
-		fmt.Printf("%-5d\t%-4d\t%-v\n", l.Index, l.Term, l.Command)
+		fmt.Printf("%-5d\t%-4d\t%-8v\t%-v\n", l.Index, l.Term, l.Index <= ectx.commitIdx, l.Command)
 	}
 	return nil
 }

@@ -14,11 +14,14 @@ import (
 )
 
 type ExecContext struct {
-	rf       *raft.Raft
-	router   *rpc.Router
-	ctx      context.Context
-	commands map[string]Command
-	cancel   func()
+	rf        *raft.Raft
+	router    *rpc.Router
+	ctx       context.Context
+	commands  map[string]Command
+	cancel    func()
+	counter   int64
+	commitIdx int64
+	closed    chan struct{}
 }
 
 func NewExecContext() *ExecContext {
@@ -82,16 +85,20 @@ func NewExecContext() *ExecContext {
 	for name, cmd := range commonCommands {
 		cmds[name] = cmd
 	}
-	return &ExecContext{
+	e := &ExecContext{
 		commands: cmds,
 		rf:       rf,
 		ctx:      ctx,
 		cancel:   cancel,
+		closed:   make(chan struct{}),
 	}
+	go e.recvCommand()
+	return e
 }
 
 func (c *ExecContext) Close() {
 	c.cancel()
+	close(c.closed)
 
 	if c.rf != nil {
 		c.rf.Shutdown()
@@ -106,4 +113,28 @@ func (c *ExecContext) ListCommand() {
 	for name, cmd := range c.commands {
 		fmt.Printf("%-12s - %-s\n", name, cmd.Usage)
 	}
+}
+
+func (c *ExecContext) recvCommand() {
+	for {
+		select {
+		case msg := <-c.rf.Applied():
+			c.applyCommand(msg)
+		case <-c.closed:
+			return
+		}
+	}
+}
+
+func (c *ExecContext) applyCommand(applyMsg raft.ApplyMsg) {
+	switch v := applyMsg.Command.(type) {
+	case string:
+		switch strings.ToUpper(v) {
+		case "INCR":
+			c.counter++
+		case "DECR":
+			c.counter--
+		}
+	}
+	c.commitIdx = applyMsg.CommandIndex
 }

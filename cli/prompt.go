@@ -8,7 +8,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	log "github.com/ccbhj/raft_lab/logging"
+	"github.com/ccbhj/raft_lab/logging"
 	"github.com/pkg/errors"
 )
 
@@ -19,6 +19,14 @@ func (c *ExecContext) Prompt() {
 		<-signalCh
 		exit(c, nil)
 	}()
+
+	name := "router"
+	if c.rf != nil {
+		name = c.rf.Name()
+	}
+	logging.FprintfColor(os.Stdout, logging.ColorGRN,
+		"welcome to raft_lab, %s\n", name)
+	c.ListCommand()
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -63,10 +71,10 @@ func (c *ExecContext) Prompt() {
 }
 
 func fatal(e error) {
-	fmt.Fprintln(os.Stderr, log.SprintfColor(log.ColorRED, "got error: %s", e))
+	fmt.Fprintln(os.Stderr, logging.SprintfColor(logging.ColorRED, "got error: %s", e))
 	os.Exit(1)
 }
 
 func printError(e error) {
-	fmt.Fprintln(os.Stderr, log.SprintfColor(log.ColorRED, "%s", e))
+	fmt.Fprintln(os.Stderr, logging.SprintfColor(logging.ColorRED, "%s", e))
 }
