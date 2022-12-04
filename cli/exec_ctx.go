@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,53 +15,35 @@ import (
 type ExecContext struct {
 	rf        *raft.Raft
 	router    *rpc.Router
-	ctx       context.Context
 	commands  map[string]Command
-	cancel    func()
 	counter   int64
 	commitIdx int64
 	closed    chan struct{}
 }
 
-func NewExecContext() *ExecContext {
-	var (
-		routerMode bool
-		logDir     string
-		name       string
-		routerAddr string
-	)
-	flag.BoolVar(&routerMode, "r", false, "start router instead of raft")
-	flag.StringVar(&logDir, "l", "./log", "log path(empty for stdout), ./log")
-	flag.StringVar(&name, "n", "", "raft peer name")
-	flag.StringVar(&routerAddr, "a", "", "router address, ip:port")
-	flag.Parse()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if routerMode {
-		os.Setenv("ROUTER_LOG_PATH", path.Join(logDir, "router.log"))
-		router := rpc.NewRouter()
-		if err := router.Start(); err != nil {
-			fatal(err)
-		}
-
-		cmds := make(map[string]Command)
-		for name, cmd := range routerCommands {
-			cmds[name] = cmd
-		}
-		for name, cmd := range commonCommands {
-			cmds[name] = cmd
-		}
-		return &ExecContext{
-			rf:       nil,
-			router:   router,
-			ctx:      ctx,
-			cancel:   cancel,
-			commands: cmds,
-		}
+func newRouterExecContext(logDir string) *ExecContext {
+	os.Setenv("ROUTER_LOG_PATH", path.Join(logDir, "router.log"))
+	router := rpc.NewRouter()
+	if err := router.Start(); err != nil {
+		fatal(err)
 	}
 
+	cmds := make(map[string]Command)
+	for name, cmd := range routerCommands {
+		cmds[name] = cmd
+	}
+	for name, cmd := range commonCommands {
+		cmds[name] = cmd
+	}
+	return &ExecContext{
+		rf:       nil,
+		router:   router,
+		commands: cmds,
+		closed:   make(chan struct{}),
+	}
+}
+
+func newRaftExecContext(name, routerAddr, logDir string) *ExecContext {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		fatal(errors.New("need a peer name"))
@@ -88,16 +69,33 @@ func NewExecContext() *ExecContext {
 	e := &ExecContext{
 		commands: cmds,
 		rf:       rf,
-		ctx:      ctx,
-		cancel:   cancel,
 		closed:   make(chan struct{}),
 	}
 	go e.recvCommand()
 	return e
 }
 
+func NewExecContext() *ExecContext {
+	var (
+		routerMode bool
+		logDir     string
+		name       string
+		routerAddr string
+	)
+	flag.BoolVar(&routerMode, "r", false, "start router instead of raft")
+	flag.StringVar(&logDir, "l", "./log", "log path(empty for stdout), ./log")
+	flag.StringVar(&name, "n", "", "raft peer name")
+	flag.StringVar(&routerAddr, "a", "", "router address, ip:port")
+	flag.Parse()
+
+	if routerMode {
+		return newRouterExecContext(logDir)
+	}
+
+	return newRaftExecContext(name, routerAddr, logDir)
+}
+
 func (c *ExecContext) Close() {
-	c.cancel()
 	close(c.closed)
 
 	if c.rf != nil {

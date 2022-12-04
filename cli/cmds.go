@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ccbhj/raft_lab/logging"
 	"github.com/ccbhj/raft_lab/raft"
 	"github.com/pkg/errors"
 )
@@ -79,7 +80,7 @@ var raftCommands = map[string]Command{
 		Handler: timeout,
 	},
 	"status": {
-		Usage:   "show raft status",
+		Usage:   "status [n sec] - show raft status every n seconds",
 		Handler: showStatus,
 	},
 	"log": {
@@ -281,21 +282,50 @@ func showStatus(ectx *ExecContext, args []string) error {
 	if !ectx.rf.Started() {
 		return errors.New("raft not started")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	status, err := ectx.rf.GetStatus(ctx)
-	if err != nil {
-		return errors.WithMessage(err, "fail to get status")
+
+	closeCh := make(chan struct{})
+	go func() {
+		reader := bufio.NewReader(os.Stdin)
+		reader.ReadLine()
+		close(closeCh)
+	}()
+
+	interval := 1 * time.Second
+	if len(args) > 1 {
+		i, err := strconv.Atoi(args[0])
+		if err != nil {
+			return errors.WithMessage(err, "invalid format of interval, must be integer")
+		}
+		interval = time.Duration(i) * time.Second
 	}
-	infos := make([]string, 0, 4)
-	infos = append(infos, fmt.Sprintf("%-12s : %-s", "name", status.Name))
-	infos = append(infos, fmt.Sprintf("%-12s : %-s", "state", status.State.String()))
-	infos = append(infos, fmt.Sprintf("%-12s : %-s", "vote_for", status.VoteFor))
-	infos = append(infos, fmt.Sprintf("%-12s : %-d", "term", status.Term))
-	infos = append(infos, fmt.Sprintf("%-12s : %-.2fsec", "timeout", float64(status.Timeout.Milliseconds())/float64(1000)))
-	infos = append(infos, fmt.Sprintf("%-12s : %-s", "last_rst", status.LastReset.Format("15:04:05.000")))
-	fmt.Println(strings.Join(infos, "\n"))
-	return nil
+
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		status, err := ectx.rf.GetStatus(ctx)
+		if err != nil {
+			return errors.WithMessage(err, "fail to get status")
+		}
+		select {
+		case <-closeCh:
+			return nil
+		default:
+		}
+		infos := make([]string, 0, 4)
+		infos = append(infos, fmt.Sprintf("%-12s : %-s", "name", status.Name))
+		infos = append(infos, fmt.Sprintf("%-12s : %-s", "state", status.State.String()))
+		infos = append(infos, fmt.Sprintf("%-12s : %-s", "vote_for", status.VoteFor))
+		infos = append(infos, fmt.Sprintf("%-12s : %-d", "term", status.Term))
+		infos = append(infos, fmt.Sprintf("%-12s : %-.2fsec", "timeout", float64(status.Timeout.Milliseconds())/float64(1000)))
+		infos = append(infos, fmt.Sprintf("%-12s : %-s", "last_rst", status.LastReset.Format("15:04:05.000")))
+		logging.FprintfColor(os.Stdout, logging.ColorYEL, strings.Join(infos, "\n")+"\n")
+		logging.FprintfColor(os.Stdout, logging.ColorGRN, strings.Repeat("-", int(cols()))+"\n")
+		select {
+		case <-closeCh:
+			return nil
+		case <-time.After(interval):
+		}
+	}
 }
 
 func showTimeout(rf *raft.Raft) error {
@@ -361,7 +391,7 @@ func progressBar(prefix string, progress, total int) {
 		}
 	}
 
-	fmt.Printf("\r%s [%s] %d%%", prefix, string(buf), per)
+	logging.FprintfColor(os.Stdout, logging.ColorYEL, "\r%s [%s] %d%%", prefix, string(buf), per)
 }
 
 func cols() int64 {

@@ -154,11 +154,11 @@ func (rf *Raft) isMoreUpToDate(ctx context.Context, lastTerm, lastIdx int64) boo
 }
 
 // update commit index to a majority of matchIndex
-// 1. count all the matchIndexes
-// 2. if a count is a majority for a match index,
-//    and the log at that index has the same term as rf.currentTerm,
-//    update rf.commitIdx to this match index
-// 3. apply logs since the commitIdx is updated
+//  1. count all the matchIndexes
+//  2. if a count is a majority for a match index,
+//     and the log at that index has the same term as rf.currentTerm,
+//     update rf.commitIdx to this match index
+//  3. apply logs since the commitIdx is updated
 func (rf *Raft) updateCommitIdx(ctx context.Context) {
 	counter := make(map[int64]int)
 	logger := getLogger(ctx)

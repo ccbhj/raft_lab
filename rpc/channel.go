@@ -108,9 +108,9 @@ func (c *Channel) Start() error {
 	if err != nil {
 		return errors.WithMessage(err, "fail to get port")
 	}
-
 	errCh := make(chan error, 1)
 	go func() {
+		GetChannelLog(context.Background()).Info("start channel at %d", port)
 		if err := c.startHttpServer(port); err != nil {
 			GetChannelLog(context.Background()).Error("channel http server down: %s", err)
 			errCh <- err
@@ -183,17 +183,9 @@ func (c *Channel) registerName(ctx context.Context, name, routerAddr string, por
 
 func (c *Channel) startHttpServer(port int) error {
 	engine := gin.New()
-	if err := os.Mkdir("log", os.ModePerm); err != nil && !os.IsExist(err) {
-		return errors.WithMessage(err, "fail to create log dir")
-	}
-	logFile, err := os.OpenFile(fmt.Sprintf("log/channel_%s_log", c.Name()), os.O_WRONLY|os.O_CREATE, os.ModePerm)
-	if err != nil {
-		return errors.WithMessage(err, "fail to create log file")
-	}
-	GetChannelLog(context.Background()).SetOutput(logFile)
 
 	engine.Use(gin.Recovery())
-	engine.Use(gin.LoggerWithWriter(logFile))
+	engine.Use(gin.LoggerWithWriter(GetChannelLog(context.Background()).GetOutput()))
 	engine.POST(MethodCall, c.handleCall)
 	engine.POST(MethodPing, c.handlePing)
 
