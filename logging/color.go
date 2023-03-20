@@ -20,8 +20,8 @@ const (
 )
 
 func FprintfColor(writor io.Writer, c Color, f string, args ...interface{}) {
-	s := fmt.Sprintf(string(c)+f+string(ColorNRM), args...)
-	fmt.Fprintf(writor, s)
+	s := fmt.Sprintf(f, args...)
+	fmt.Fprint(writor, string(c)+s+string(ColorNRM))
 }
 
 func SprintfColor(c Color, f string, args ...interface{}) string {
