@@ -15,9 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
+
+	log "github.com/ccbhj/raft_lab/logging"
 )
 
 const (
@@ -308,7 +309,7 @@ func (r *Router) Start() error {
 	errCh := make(chan error, 1)
 	go func() {
 		if err := r.startHttpServer(port); err != nil {
-			GetChannelLog(context.Background()).Error("channel http server down: %s", err)
+			GetRouterLog(context.Background()).Error("channel http server down: %s", err)
 			errCh <- err
 		}
 	}()

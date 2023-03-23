@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/ccbhj/raft_lab/logging"
 	"github.com/ccbhj/raft_lab/raft"
-	"github.com/pkg/errors"
 )
 
 type Command struct {
@@ -45,11 +46,11 @@ var routerCommands = map[string]Command{
 		Handler: disablePeer,
 	},
 	"enable": {
-		Usage:   "enable peer - enable a peer in network",
+		Usage:   "enable peer -- enable a peer in network",
 		Handler: enablePeer,
 	},
 	"ls": {
-		Usage:   "ls - list all peers in route table",
+		Usage:   "list all peers in route table",
 		Handler: listRouteTab,
 	},
 
@@ -59,7 +60,7 @@ var routerCommands = map[string]Command{
 	},
 
 	"block": {
-		Usage:   "block [enable/disable] - enable/disable block registration",
+		Usage:   "block [enable/disable] -- enable/disable block registration",
 		Handler: blockToggle,
 	},
 }
@@ -72,23 +73,23 @@ var raftCommands = map[string]Command{
 		},
 	},
 	"counter": {
-		Usage:   "counter - show the internal counter",
+		Usage:   "show the internal counter",
 		Handler: showCounter,
 	},
 	"timeout": {
-		Usage:   "timeout [n sec/now] - show the timer status or timeout in n seconds or now",
+		Usage:   "timeout [n sec/now] -- show the timer status or timeout in n seconds or now",
 		Handler: timeout,
 	},
 	"status": {
-		Usage:   "status [n sec] - show raft status every n seconds",
+		Usage:   "status [n sec] -- show raft status every n seconds",
 		Handler: showStatus,
 	},
 	"log": {
-		Usage:   "log start_idx [end_idx] - print of log[start_idx:end_idx], end_idx will be start_idx+1 by default",
+		Usage:   "log start_idx [end_idx] -- print of log[start_idx:end_idx], end_idx will be start_idx+1 by default",
 		Handler: showLogs,
 	},
 	"commit": {
-		Usage:   "commit [string] - commit a string log to a leader peer",
+		Usage:   "commit [string] -- commit a string log to a leader peer",
 		Handler: addLog,
 	},
 }
@@ -391,7 +392,7 @@ func progressBar(prefix string, progress, total int) {
 		}
 	}
 
-	logging.FprintfColor(os.Stdout, logging.ColorYEL, "\r%s [%s] %d%%", prefix, string(buf), per)
+	logging.FprintfColor(os.Stdout, logging.ColorYEL, "\r%s [%s] %d%% ", prefix, string(buf), per)
 }
 
 func cols() int64 {

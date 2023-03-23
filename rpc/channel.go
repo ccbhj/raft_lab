@@ -16,9 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
+
+	log "github.com/ccbhj/raft_lab/logging"
 )
 
 const DefaultTimeout = 5 * time.Second
@@ -382,7 +383,6 @@ func getPort() (port int, err error) {
 			return 0, errors.WithMessage(err, "invalid port")
 		}
 	}
-
 	if port == 0 {
 		port = DefaultPort
 	}

@@ -11,9 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pkg/errors"
+
 	log "github.com/ccbhj/raft_lab/logging"
 	"github.com/ccbhj/raft_lab/rpc"
-	"github.com/pkg/errors"
 )
 
 func init() {
@@ -50,7 +51,6 @@ type Raft struct {
 	// Persister *Persister // Object to hold this peer's persisted state
 	me string // this peer's index into peers[]
 
-	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 	state       State

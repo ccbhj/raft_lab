@@ -1,14 +1,16 @@
 GO=go
 out=./bin
 
-all: raft_cli
+APP=raft router
 
-raft_cli: init
-	${GO} build -o ${out}/$@ main.go
+all: ${APP}
+
+${APP}: init
+	${GO} build -o ${out}/$@ cmd/$@/main.go
 
 init:
 	${GO} mod vendor
 clean:
-	rm -rf ${out}
+	rm -rf ${out}/*
 
-.PHONY: clean
+.PHONY: clean ${APP}

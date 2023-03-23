@@ -21,7 +21,11 @@ type ExecContext struct {
 	closed    chan struct{}
 }
 
-func newRouterExecContext(logDir string) *ExecContext {
+func NewRouterExecContext() *ExecContext {
+	var logDir string
+	flag.StringVar(&logDir, "l", "./log", "log path(empty for stdout), ./log")
+	flag.Parse()
+
 	os.Setenv("ROUTER_LOG_PATH", path.Join(logDir, "router.log"))
 	router := rpc.NewRouter()
 	if err := router.Start(); err != nil {
@@ -75,22 +79,16 @@ func newRaftExecContext(name, routerAddr, logDir string) *ExecContext {
 	return e
 }
 
-func NewExecContext() *ExecContext {
+func NewRaftExecContext() *ExecContext {
 	var (
-		routerMode bool
 		logDir     string
 		name       string
 		routerAddr string
 	)
-	flag.BoolVar(&routerMode, "r", false, "start router instead of raft")
 	flag.StringVar(&logDir, "l", "./log", "log path(empty for stdout), ./log")
 	flag.StringVar(&name, "n", "", "raft peer name")
 	flag.StringVar(&routerAddr, "a", "", "router address, ip:port")
 	flag.Parse()
-
-	if routerMode {
-		return newRouterExecContext(logDir)
-	}
 
 	return newRaftExecContext(name, routerAddr, logDir)
 }
